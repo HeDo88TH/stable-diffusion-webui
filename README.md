@@ -63,7 +63,7 @@ as model if it has .pth extension. Grab models from the [Model Database](https:/
 - install [CUDA 11.3](https://developer.nvidia.com/cuda-11.3.0-download-archive?target_os=Windows&target_arch=x86_64)
 - place `model.ckpt` into webui directory, next to `webui.bat`.
 - _*(optional)*_ place `GFPGANv1.3.pth` into webui directory, next to `webui.bat`.
-- run `webui.bat` from Windows Explorer.
+- run `webui.bat` from Windows Explorer. Run it as normal user, ***not*** as administrator.
 
 #### Troublehooting:
 
@@ -102,6 +102,14 @@ program in collabs.
 Use `--listen` to make the server listen to network connections. This will allow computers on local newtork
 to access the UI, and if you configure port forwarding, also computers on the internet.
 
+### Textual Inversion
+To make use of pretrained embeddings, create `embeddings` directory (in the same palce as `webui.py`)
+and put your embeddings into it. They must be .pt files, each with only one trained embedding,
+and the filename (without .pt) will be the term you'd use in prompt to get that embedding.
+
+As an example, I trained one for about 5000 steps: https://files.catbox.moe/e2ui6r.pt; it does not produce
+very good results, but it does work. Download and rename it to Usada Pekora.pt, and put it into embeddings dir
+and use Usada Pekora in prompt.
 
 ### How to change UI defaults?
 

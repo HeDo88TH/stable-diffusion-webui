@@ -14,7 +14,7 @@ from modules.sd_hijack import model_hijack
 from modules.sd_samplers import samplers, samplers_for_img2img
 from modules.shared import opts, cmd_opts, state
 import modules.shared as shared
-import modules.gfpgan_model as gfpgan
+import modules.face_restoration
 import modules.images as images
 
 # some of those options should not be changed at all because they would break the model, so I removed them from options.
@@ -29,7 +29,7 @@ def torch_gc():
 
 
 class StableDiffusionProcessing:
-    def __init__(self, sd_model=None, outpath_samples=None, outpath_grids=None, prompt="", seed=-1, sampler_index=0, batch_size=1, n_iter=1, steps=50, cfg_scale=7.0, width=512, height=512, use_GFPGAN=False, tiling=False, do_not_save_samples=False, do_not_save_grid=False, extra_generation_params=None, overlay_images=None, negative_prompt=None):
+    def __init__(self, sd_model=None, outpath_samples=None, outpath_grids=None, prompt="", seed=-1, sampler_index=0, batch_size=1, n_iter=1, steps=50, cfg_scale=7.0, width=512, height=512, restore_faces=False, tiling=False, do_not_save_samples=False, do_not_save_grid=False, extra_generation_params=None, overlay_images=None, negative_prompt=None):
         self.sd_model = sd_model
         self.outpath_samples: str = outpath_samples
         self.outpath_grids: str = outpath_grids
@@ -44,7 +44,7 @@ class StableDiffusionProcessing:
         self.cfg_scale: float = cfg_scale
         self.width: int = width
         self.height: int = height
-        self.use_GFPGAN: bool = use_GFPGAN
+        self.restore_faces: bool = restore_faces
         self.tiling: bool = tiling
         self.do_not_save_samples: bool = do_not_save_samples
         self.do_not_save_grid: bool = do_not_save_grid
@@ -99,6 +99,10 @@ def create_random_tensors(shape, seeds):
     return x
 
 
+def set_seed(seed):
+    return int(random.randrange(4294967294)) if seed is None or seed == -1 else seed
+
+
 def process_images(p: StableDiffusionProcessing) -> Processed:
     """this is the main loop that both txt2img and img2img use; it calls func_init once inside all the scopes and func_sample once per batch"""
 
@@ -107,7 +111,7 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
     assert p.prompt is not None
     torch_gc()
 
-    seed = int(random.randrange(4294967294)) if p.seed == -1 else p.seed
+    seed = set_seed(p.seed)
 
     os.makedirs(p.outpath_samples, exist_ok=True)
     os.makedirs(p.outpath_grids, exist_ok=True)
@@ -132,7 +136,7 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
             "Sampler": samplers[p.sampler_index].name,
             "CFG scale": p.cfg_scale,
             "Seed": all_seeds[position_in_batch + iteration * p.batch_size],
-            "GFPGAN": ("GFPGAN" if p.use_GFPGAN else None),
+            "Face restoration": (opts.face_restoration_model if p.restore_faces else None),
             "Batch size": (None if p.batch_size < 2 else p.batch_size),
             "Batch pos": (None if p.batch_size < 2 else position_in_batch),
         }
@@ -189,10 +193,10 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
                 x_sample = 255. * np.moveaxis(x_sample.cpu().numpy(), 0, 2)
                 x_sample = x_sample.astype(np.uint8)
 
-                if p.use_GFPGAN:
+                if p.restore_faces:
                     torch_gc()
 
-                    x_sample = gfpgan.gfpgan_fix_faces(x_sample)
+                    x_sample = modules.face_restoration.restore_faces(x_sample)
 
                 image = Image.fromarray(x_sample)
 
@@ -342,7 +346,9 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
                 self.paste_to = (x1, y1, x2-x1, y2-y1)
             else:
                 self.image_mask = images.resize_image(self.resize_mode, self.image_mask, self.width, self.height)
-                self.mask_for_overlay = self.image_mask
+                np_mask = np.array(self.image_mask)
+                np_mask = 255 - np.clip((255 - np_mask.astype(np.float)) * 2, 0, 255).astype(np.uint8)
+                self.mask_for_overlay = Image.fromarray(np_mask)
 
             self.overlay_images = []
 
