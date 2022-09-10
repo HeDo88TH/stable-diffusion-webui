@@ -1,8 +1,8 @@
 titles = {
-    "Sampling steps": "How many times to imptove the generated image itratively; higher values take longer; very low values can produce bad results",
+    "Sampling steps": "How many times to improve the generated image iteratively; higher values take longer; very low values can produce bad results",
     "Sampling method": "Which algorithm to use to produce the image",
 	"GFPGAN": "Restore low quality faces using GFPGAN neural network",
-	"Euler a": "Euler Ancestral - very creative, each can get acompletely different pictures depending on step count, setting seps tohigher than 30-40 does not help",
+	"Euler a": "Euler Ancestral - very creative, each can get a completely different picture depending on step count, setting steps to higher than 30-40 does not help",
 	"DDIM": "Denoising Diffusion Implicit Models - best at inpainting",
 
 	"Batch count": "How many batches of images to create",
@@ -11,7 +11,7 @@ titles = {
     "Seed": "A value that determines the output of random number generator - if you create an image with same parameters and seed as another image, you'll get the same result",
 
     "Inpaint a part of image": "Draw a mask over an image, and the script will regenerate the masked area with content according to prompt",
-    "Loopback": "Process an image, use it as an input, repeat. Batch count determings number of iterations.",
+    "Loopback": "Process an image, use it as an input, repeat. Batch count determins number of iterations.",
     "SD upscale": "Upscale image normally, split result into tiles, improve each tile using img2img, merge whole image back",
 
     "Just resize": "Resize image to target resolution. Unless height and width match, you will get incorrect aspect ratio.",
@@ -26,7 +26,8 @@ titles = {
     "latent nothing": "fill it with latent space zeroes",
     "Inpaint at full resolution": "Upscale masked region to target resolution, do inpainting, downscale back and paste into original image",
 
-    "Denoising Strength": "Determines how little respect the algorithm should have for image's content. At 0, nothing will change, and at 1 you'll get an unrelated image.",
+    "Denoising strength": "Determines how little respect the algorithm should have for image's content. At 0, nothing will change, and at 1 you'll get an unrelated image. With values below 1.0, processing will take less steps than the Sampling Steps slider specifies.",
+    "Denoising strength change factor": "In loopback mode, on each loop the denoising strength is multiplied by this value. <1 means decreasing variety so your sequence will converge on a fixed picture. >1 means increasing variety so your sequence will become more and more chaotic.",
 
     "Interrupt": "Stop processing images and return any results accumulated so far.",
     "Save": "Write image to a directory (default - log/images) and generation parameters into csv file.",
@@ -36,15 +37,20 @@ titles = {
 
     "None": "Do not do anything special",
     "Prompt matrix": "Separate prompts into parts using vertical pipe character (|) and the script will create a picture for every combination of them (except for the first part, which will be present in all combinations)",
-    "X/Y plot": "Create a grid where images will have different parameters. Use inputs below to specify which parameterswill be shared by columns and rows",
-    "Custom code": "Run python code. Advanced user only. Must run program with --allow-code for this to work",
+    "X/Y plot": "Create a grid where images will have different parameters. Use inputs below to specify which parameters will be shared by columns and rows",
+    "Custom code": "Run Python code. Advanced user only. Must run program with --allow-code for this to work",
 
     "Prompt S/R": "Separate a list of words with commas, and the first word will be used as a keyword: script will search for this word in the prompt, and replace it with others",
 
     "Tiling": "Produce an image that can be tiled.",
-    "Tile overlap": "For SD upscale, how much overlap in pixels should there be between tiles. Tils overlap so that when they are merged back into one oicture, there is no clearly visible seam.",
+    "Tile overlap": "For SD upscale, how much overlap in pixels should there be between tiles. Tiles overlap so that when they are merged back into one picture, there is no clearly visible seam.",
 
     "Roll": "Add a random artist to the prompt.",
+
+    "Variation seed": "Seed of a different picture to be mixed into the generation.",
+    "Variation strength": "How strong of a variation to produce. At 0, there will be no effect. At 1, you will get the complete picture with variation seed (except for ancestral samplers, where you will just get something).",
+    "Resize seed from height": "Make an attempt to produce a picture similar to what would have been produced with same seed at specified resolution",
+    "Resize seed from width": "Make an attempt to produce a picture similar to what would have been produced with same seed at specified resolution",
 }
 
 function gradioApp(){
@@ -129,12 +135,11 @@ function extract_image_from_gallery(gallery){
     index = selected_gallery_index()
 
     if (index < 0 || index >= gallery.length){
-        return []
+        return [null]
     }
 
     return gallery[index];
 }
-
 
 function requestProgress(){
     btn = gradioApp().getElementById("check_progress");
@@ -150,6 +155,30 @@ function submit(){
     for(var i=0;i<arguments.length;i++){
         res.push(arguments[i])
     }
-    console.log(res)
     return res
+}
+
+window.addEventListener('paste', e => {
+    const files = e.clipboardData.files;
+    if (!files || files.length !== 1) {
+        return;
+    }
+    if (!['image/png', 'image/gif', 'image/jpeg'].includes(files[0].type)) {
+        return;
+    }
+    [...gradioApp().querySelectorAll('input[type=file][accept="image/x-png,image/gif,image/jpeg"]')]
+        .filter(input => !input.matches('.\\!hidden input[type=file]'))
+        .forEach(input => {
+            input.files = files;
+            input.dispatchEvent(new Event('change'))
+        });
+});
+
+function ask_for_style_name(style_name, text){
+    input = prompt('Style name:');
+    if (input === null) {
+        return [null, null]
+    }
+
+    return [input, text]
 }

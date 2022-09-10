@@ -5,6 +5,8 @@ import re
 
 import numpy as np
 from PIL import Image, ImageFont, ImageDraw, PngImagePlugin
+from fonts.ttf import Roboto
+import string
 
 import modules.shared
 from modules.shared import opts
@@ -132,11 +134,11 @@ def draw_grid_annotations(im, width, height, hor_texts, ver_texts):
 
     fontsize = (width + height) // 25
     line_spacing = fontsize // 2
-    fnt = ImageFont.truetype(opts.font, fontsize)
+    fnt = ImageFont.truetype(opts.font or Roboto, fontsize)
     color_active = (0, 0, 0)
     color_inactive = (153, 153, 153)
 
-    pad_left = width * 3 // 4 if len(ver_texts) > 0 else 0
+    pad_left = 0 if sum([sum([len(line.text) for line in lines]) for lines in ver_texts]) == 0 else width * 3 // 4
 
     cols = im.width // width
     rows = im.height // height
@@ -234,6 +236,7 @@ def resize_image(resize_mode, im, width, height):
 
 
 invalid_filename_chars = '<>:"/\\|?*\n'
+re_nonletters = re.compile(r'[\s'+string.punctuation+']+')
 
 
 def sanitize_filename_part(text):
@@ -241,6 +244,9 @@ def sanitize_filename_part(text):
 
 
 def save_image(image, path, basename, seed=None, prompt=None, extension='png', info=None, short_filename=False, no_prompt=False):
+    # would be better to add this as an argument in future, but will do for now
+    is_a_grid = basename != ""
+
     if short_filename or prompt is None or seed is None:
         file_decoration = ""
     elif opts.save_to_dirs:
@@ -254,12 +260,14 @@ def save_image(image, path, basename, seed=None, prompt=None, extension='png', i
     else:
         pnginfo = None
 
-    if opts.save_to_dirs and not no_prompt:
-        words = re.findall(r'\w+', prompt or "")
+    save_to_dirs = (is_a_grid and opts.grid_save_to_dirs) or (not is_a_grid and opts.save_to_dirs)
+
+    if save_to_dirs and not no_prompt:
+        words = [x for x in re_nonletters.split(prompt or "") if len(x)>0]
         if len(words) == 0:
             words = ["empty"]
 
-        dirname = " ".join(words[0:opts.save_to_dirs_prompt_len])
+        dirname = " ".join(words[0:opts.save_to_dirs_prompt_len]).strip()
         path = os.path.join(path, dirname)
 
     os.makedirs(path, exist_ok=True)
