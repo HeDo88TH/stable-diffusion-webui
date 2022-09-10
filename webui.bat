@@ -1,14 +1,13 @@
 @echo off
 
-set PYTHON=python
-set GIT=git
-set COMMANDLINE_ARGS=
-set VENV_DIR=venv
+if not defined PYTHON (set PYTHON=python)
+if not defined GIT (set GIT=git)
+if not defined COMMANDLINE_ARGS (set COMMANDLINE_ARGS=%*)
+if not defined VENV_DIR (set VENV_DIR=venv)
+if not defined TORCH_COMMAND (set TORCH_COMMAND=pip install torch==1.12.1+cu113 --extra-index-url https://download.pytorch.org/whl/cu113)
+if not defined REQS_FILE (set REQS_FILE=requirements_versions.txt)
 
 mkdir tmp 2>NUL
-
-set TORCH_COMMAND=pip install torch==1.12.1+cu113 --extra-index-url https://download.pytorch.org/whl/cu113
-set REQS_FILE=requirements_versions.txt
 
 %PYTHON% -c "" >tmp/stdout.txt 2>tmp/stderr.txt
 if %ERRORLEVEL% == 0 goto :check_git
@@ -22,7 +21,7 @@ echo Couldn't launch git
 goto :show_stdout_stderr
 
 :setup_venv
-if [%VENV_DIR%] == [] goto :skip_venv
+if [%VENV_DIR%] == [-] goto :skip_venv
 
 dir %VENV_DIR%\Scripts\Python.exe >tmp/stdout.txt 2>tmp/stderr.txt
 if %ERRORLEVEL% == 0 goto :activate_venv
@@ -35,7 +34,7 @@ echo Unable to create venv in directory %VENV_DIR%
 goto :show_stdout_stderr
 
 :activate_venv
-set PYTHON=%~dp0%VENV_DIR%\Scripts\Python.exe
+set PYTHON="%~dp0%VENV_DIR%\Scripts\Python.exe"
 %PYTHON% --version
 echo venv %PYTHON%
 goto :install_torch
@@ -86,15 +85,12 @@ if %ERRORLEVEL% == 0 goto :install_reqs
 goto :show_stdout_stderr
 
 :install_reqs
-%PYTHON% -c "import omegaconf" >tmp/stdout.txt 2>tmp/stderr.txt
+%PYTHON% -c "import omegaconf; import fonts" >tmp/stdout.txt 2>tmp/stderr.txt
 if %ERRORLEVEL% == 0 goto :make_dirs
 echo Installing requirements...
 %PYTHON% -m pip install -r %REQS_FILE% --prefer-binary >tmp/stdout.txt 2>tmp/stderr.txt
-if %ERRORLEVEL% == 0 goto :update_numpy
+if %ERRORLEVEL% == 0 goto :make_dirs
 goto :show_stdout_stderr
-
-:update_numpy
-%PYTHON% -m pip install -U numpy --prefer-binary >tmp/stdout.txt 2>tmp/stderr.txt
 
 :make_dirs
 mkdir repositories 2>NUL

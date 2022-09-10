@@ -43,6 +43,7 @@ def load_model_from_config(config, ckpt, verbose=False):
     if "global_step" in pl_sd:
         print(f"Global Step: {pl_sd['global_step']}")
     sd = pl_sd["state_dict"]
+
     model = instantiate_from_config(config.model)
     m, u = model.load_state_dict(sd, strict=False)
     if len(m) > 0 and verbose:
@@ -87,7 +88,7 @@ def run_extras(image, gfpgan_visibility, codeformer_visibility, codeformer_weigh
         def upscale(image, scaler_index, resize):
             small = image.crop((image.width // 2, image.height // 2, image.width // 2 + 10, image.height // 2 + 10))
             pixels = tuple(np.array(small).flatten().tolist())
-            key = (resize, scaler_index, image.width, image.height) + pixels
+            key = (resize, scaler_index, image.width, image.height, gfpgan_visibility, codeformer_visibility, codeformer_weight) + pixels
 
             c = cached_images.get(key)
             if c is None:
@@ -152,6 +153,7 @@ def wrap_gradio_gpu_call(func):
 
     return modules.ui.wrap_gradio_call(f)
 
+modules.scripts.load_scripts(os.path.join(script_path, "scripts"))
 
 try:
     # this silences the annoying "Some weights of the model checkpoint were not used when initializing..." message at start.
@@ -173,14 +175,12 @@ else:
 
 modules.sd_hijack.model_hijack.hijack(shared.sd_model)
 
-modules.scripts.load_scripts(os.path.join(script_path, "scripts"))
 
-if __name__ == "__main__":
+def webui():
     # make the program just exit at ctrl+c without waiting for anything
     def sigint_handler(sig, frame):
         print(f'Interrupted with signal {sig} in {frame}')
         os._exit(0)
-
 
     signal.signal(signal.SIGINT, sigint_handler)
 
@@ -191,4 +191,7 @@ if __name__ == "__main__":
         run_pnginfo=run_pnginfo
     )
 
-    demo.launch(share=cmd_opts.share, server_name="0.0.0.0" if cmd_opts.listen else None)
+    demo.launch(share=cmd_opts.share, server_name="0.0.0.0" if cmd_opts.listen else None, server_port=cmd_opts.port)
+
+if __name__ == "__main__":
+    webui()
