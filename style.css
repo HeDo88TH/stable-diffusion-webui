@@ -5,6 +5,10 @@
     max-width: 13em;
 }
 
+#img2img_interrogate{
+    max-width: 10em;
+}
+
 #subseed_show{
     min-width: 6em;
     max-width: 6em;
@@ -26,7 +30,7 @@
     padding-right: 0;
 }
 
-#component-1 div{
+#toprow div{
     border: none;
     gap: 0;
 }
@@ -111,6 +115,7 @@ fieldset span.text-gray-500, .gr-block.gr-box span.text-gray-500,  label.block s
 
 #settings .gr-panel div.flex-col div.justify-between div{
     position: relative;
+    z-index: 200;
 }
 
 input[type="range"]{
@@ -130,6 +135,7 @@ input[type="range"]{
 
 #txt2img_negative_prompt, #img2img_negative_prompt{
     flex: 0.3;
+    min-width: 10em;
 }
 
 .progressDiv{

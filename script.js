@@ -1,3 +1,5 @@
+
+
 titles = {
     "Sampling steps": "How many times to improve the generated image iteratively; higher values take longer; very low values can produce bad results",
     "Sampling method": "Which algorithm to use to produce the image",
@@ -11,7 +13,6 @@ titles = {
     "Seed": "A value that determines the output of random number generator - if you create an image with same parameters and seed as another image, you'll get the same result",
 
     "Inpaint a part of image": "Draw a mask over an image, and the script will regenerate the masked area with content according to prompt",
-    "Loopback": "Process an image, use it as an input, repeat. Batch count determins number of iterations.",
     "SD upscale": "Upscale image normally, split result into tiles, improve each tile using img2img, merge whole image back",
 
     "Just resize": "Resize image to target resolution. Unless height and width match, you will get incorrect aspect ratio.",
@@ -51,6 +52,14 @@ titles = {
     "Variation strength": "How strong of a variation to produce. At 0, there will be no effect. At 1, you will get the complete picture with variation seed (except for ancestral samplers, where you will just get something).",
     "Resize seed from height": "Make an attempt to produce a picture similar to what would have been produced with same seed at specified resolution",
     "Resize seed from width": "Make an attempt to produce a picture similar to what would have been produced with same seed at specified resolution",
+
+    "Interrogate": "Reconstruct prompt from existing image and put it into the prompt field.",
+
+    "Images filename pattern": "Use following tags to define how filenames for images are chosen: [steps], [cfg], [prompt], [prompt_spaces], [width], [height], [sampler], [seed], [model_hash], [prompt_words], [date]; leave empty for default.",
+    "Directory name pattern": "Use following tags to define how subdirectories for images and grids are chosen: [steps], [cfg], [prompt], [prompt_spaces], [width], [height], [sampler], [seed], [model_hash], [prompt_words], [date]; leave empty for default.",
+
+    "Loopback": "Process an image, use it as an input, repeat.",
+    "Loops": "How many times to repeat processing an image and using it as input for the next iteration",
 }
 
 function gradioApp(){
@@ -141,6 +150,16 @@ function extract_image_from_gallery(gallery){
     return gallery[index];
 }
 
+function extract_image_from_gallery_img2img(gallery){
+    gradioApp().querySelectorAll('button')[1].click();
+    return extract_image_from_gallery(gallery);
+}
+
+function extract_image_from_gallery_extras(gallery){
+    gradioApp().querySelectorAll('button')[2].click();
+    return extract_image_from_gallery(gallery);
+}
+
 function requestProgress(){
     btn = gradioApp().getElementById("check_progress");
     if(btn==null) return;
@@ -174,11 +193,7 @@ window.addEventListener('paste', e => {
         });
 });
 
-function ask_for_style_name(style_name, text){
-    input = prompt('Style name:');
-    if (input === null) {
-        return [null, null]
-    }
-
-    return [input, text]
+function ask_for_style_name(_, prompt_text, negative_prompt_text) {
+    name_ = prompt('Style name:')
+    return name_ === null ? [null, null, null]: [name_, prompt_text, negative_prompt_text]
 }
