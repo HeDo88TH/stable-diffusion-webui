@@ -19,19 +19,20 @@ A browser interface based on Gradio library for Stable Diffusion.
 - Textual Inversion
 - Extras tab with:
   - GFPGAN, neural network that fixes faces
+  - CodeFormer, face restoration tool as an alternative to GFPGAN
   - RealESRGAN, neural network upscaler
   - ESRGAN, neural network with a lot of third party models
 - Resizing aspect ratio options
 - Sampling method selection
 - Interrupt processing at any time
-- 4GB videocard support
+- 4GB video card support
 - Correct seeds for batches
 - Prompt length validation
 - Generation parameters added as text to PNG
 - Tab to view an existing picture's generation parameters
 - Settings page
 - Running custom code from UI
-- Mouseover hints fo most UI elements
+- Mouseover hints for most UI elements
 - Possible to change defaults/mix/max/step values for UI elements via text config
 - Random artist button
 - Tiling support: UI checkbox to create images that can be tiled like textures
@@ -40,11 +41,12 @@ A browser interface based on Gradio library for Stable Diffusion.
 - Styles
 - Variations
 - Seed resizing
+- CLIP interrogator
 
 ## Installing and running
 
 You need [python](https://www.python.org/downloads/windows/) and [git](https://git-scm.com/download/win)
-installed to run this, and an NVidia videocard.
+installed to run this, and an NVidia video card.
 
 You need `model.ckpt`, Stable Diffusion model checkpoint, a big file containing the neural network weights. You
 can obtain it from the following places:
@@ -52,10 +54,13 @@ can obtain it from the following places:
  - [file storage](https://drive.yerf.org/wl/?id=EBfTrmcCCUAGaQBXVIj5lJmEhjoP1tgl)
  - magnet:?xt=urn:btih:3a4a612d75ed088ea542acac52f9f45987488d1c&dn=sd-v1-4.ckpt&tr=udp%3a%2f%2ftracker.openbittorrent.com%3a6969%2fannounce&tr=udp%3a%2f%2ftracker.opentrackr.org%3a1337
 
-You optionally can use GFPGAN to improve faces, then you'll need to download the model from [here](https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth).
+You can optionally use GFPGAN to improve faces, to do so you'll need to download the model from [here](https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pth) and place it in the same directory as `webui.bat`.
 
 To use ESRGAN models, put them into ESRGAN directory in the same location as webui.py. A file will be loaded
-as model if it has .pth extension. Grab models from the [Model Database](https://upscale.wiki/wiki/Model_Database).
+as a model if it has .pth extension, and it will show up with its name in the UI. Grab models from the [Model Database](https://upscale.wiki/wiki/Model_Database).
+
+> Note: RealESRGAN models are not ESRGAN models, they are not compatible. Do not download RealESRGAN models. Do not place
+RealESRGAN into the directory with ESRGAN models. Thank you.
 
 ### Automatic installation/launch
 
@@ -63,7 +68,40 @@ as model if it has .pth extension. Grab models from the [Model Database](https:/
 - install [git](https://git-scm.com/download/win)
 - place `model.ckpt` into webui directory, next to `webui.bat`.
 - _*(optional)*_ place `GFPGANv1.3.pth` into webui directory, next to `webui.bat`.
-- run `webui-user.bat` from Windows Explorer. Run it as normal user, ***not*** as administrator.
+- run `webui-user.bat` from Windows Explorer. Run it as a normal user, ***not*** as administrator.
+
+### Running on AMD GPUs
+See the [wiki article](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Running-using-AMD-GPUs) by [cryzed](https://github.com/cryzed).
+
+### Linux Automatic installation/launch
+
+Prequisites:
+- For Debian-based:
+```commandline
+sudo apt install wget git python3 python3-venv
+```
+- For Red Hat-based:
+```commandline
+sudo dnf install wget git python3
+```
+
+
+- If you want to install to default directory `/home/$(whoami)/stable-diffusion-webui/`, you can launch directly:
+```commandline
+bash <(wget -qO- https://raw.githubusercontent.com/AUTOMATIC1111/stable-diffusion-webui/master/webui.sh)
+```
+
+
+- If you want to customize the installation just `git clone` the repo where you want it,
+change the variables in `webui-user.sh` and launch in console `bash webui.sh`.
+
+
+
+- place `model.ckpt` into webui directory, next to `webui.py`.
+- _*(optional)*_ place `GFPGANv1.3.pth` into webui directory, next to `webui.py`.
+- run `bash webui.sh`. Run it as a normal user, ***not*** as root.
+
+
 
 #### Troubleshooting
 
@@ -81,10 +119,10 @@ may help (but I still recommend you to just use the recommended version of pytho
 floating point numbers (Known issue with 16xx cards). You must use `--precision full --no-half` in addition to command line
 arguments (set them using `set COMMANDLINE_ARGS`, see below), and the model will take much more space in VRAM (you will likely
 have to also use at least `--medvram`).
-- installer creates python virtual environment, so none of installed modules will affect your system installation of python if
+- the installer creates a python virtual environment, so none of the installed modules will affect your system installation of python if
 you had one prior to installing this.
 - About _"You must install this exact version"_ from the instructions above: you can use any version of python you like,
-and it will likely work, but if you want to seek help about things not working, I will not offer help unless you this
+and it will likely work, but if you want to seek help about things not working, I will not offer help unless you use this
 exact version for my sanity.
 
 #### How to run with custom parameters
@@ -92,10 +130,10 @@ exact version for my sanity.
 It's possible to edit `set COMMANDLINE_ARGS=` line in `webui.bat` to run the program with different command line arguments, but that may lead
 to inconveniences when the file is updated in the repository.
 
-The recommndended way is to use another .bat file named anything you like, set the parameters you want in it, and run webui.bat from it.
+The recommended way is to use another .bat file named anything you like, set the parameters you want in it, and run webui.bat from it.
 A `webui-user.bat` file included into the repository does exactly this.
 
-Here is an example that runs the prgoram with `--opt-split-attention` argument:
+Here is an example that runs the program with `--opt-split-attention` argument:
 
 ```commandline
 @echo off
@@ -105,7 +143,7 @@ set COMMANDLINE_ARGS=--opt-split-attention
 call webui.bat
 ```
 
-Another example, this file will run the program with custom python path, a different model named `a.ckpt` and without virtual environment:
+Another example, this file will run the program with a custom python path, a different model named `a.ckpt` and without a virtual environment:
 
 ```commandline
 @echo off
@@ -116,6 +154,9 @@ set COMMANDLINE_ARGS=--ckpt a.ckpt
 
 call webui.bat
 ```
+
+### How to create large images?
+Use `--opt-split-attention` parameter. It slows down sampling a tiny bit, but allows you to make gigantic images.
 
 ### What options to use for low VRAM video-cards?
 You can, through command line arguments, enable the various optimizations which sacrifice some/a lot of speed in favor of
@@ -132,30 +173,32 @@ also but the effect will likely be barely noticeable.
 
 ### Running online
 
-Use `--share` option to run online. You will get a xxx.app.gradio link. This is the intended way to use the
-program in collabs.
+Use the `--share` option to run online. You will get a xxx.app.gradio link. This is the intended way to use the
+program in collabs. You may set up authentication for said gradio shared instance with the flag `--gradio-auth username:password`, optionally providing multiple sets of usernames and passwords separated by commas.
 
-Use `--listen` to make the server listen to network connections. This will allow computers on local newtork
+Use `--listen` to make the server listen to network connections. This will allow computers on the local network
 to access the UI, and if you configure port forwarding, also computers on the internet.
 
 Use `--port xxxx` to make the server listen on a specific port, xxxx being the wanted port. Remember that
-all ports below 1024 needs root/admin rights, for this reason it is advised to use a port above 1024.
+all ports below 1024 need root/admin rights, for this reason it is advised to use a port above 1024.
 Defaults to port 7860 if available.
 
 ### Google collab
 
-If you don't want or can't run locally, here is google collab that allows you to run the webui:
+If you don't want or can't run locally, here is a Google colab that allows you to run the webui:
 
 https://colab.research.google.com/drive/1Iy-xW9t1-OQWhb0hNxueGij8phCyluOh
 
 ### Textual Inversion
-To make use of pretrained embeddings, create `embeddings` directory (in the same palce as `webui.py`)
-and put your embeddings into it. They must be .pt files, each with only one trained embedding,
-and the filename (without .pt) will be the term you'd use in prompt to get that embedding.
+To make use of pretrained embeddings, create an `embeddings` directory (in the same place as `webui.py`)
+and put your embeddings into it. They must be either .pt or .bin files, each with only one trained embedding,
+and the filename (without .pt/.bin) will be the term you'll use in the prompt to get that embedding.
 
 As an example, I trained one for about 5000 steps: https://files.catbox.moe/e2ui6r.pt; it does not produce
-very good results, but it does work. Download and rename it to Usada Pekora.pt, and put it into embeddings dir
-and use Usada Pekora in prompt.
+very good results, but it does work. To try it out download the file, rename it to `Usada Pekora.pt`, put it into the `embeddings` dir
+and use `Usada Pekora` in the prompt.
+
+You may also try some from the growing library of embeddings at https://huggingface.co/sd-concepts-library, downloading one of the `learned_embeds.bin` files, renaming it to the term you want to use for it in the prompt (be sure to keep the .bin extension) and putting it in your `embeddings` directory.
 
 ### How to change UI defaults?
 
@@ -177,8 +220,25 @@ After running once, a `ui-config.json` file appears in webui directory:
 
 Edit values to your liking and the next time you launch the program they will be applied.
 
+### Almost automatic installation and launch
+
+Install python and git, place `model.ckpt` and `GFPGANv1.3.pth` into webui directory, run:
+
+```
+python launch.py
+```
+
+This installs packages via pip. If you need to use a virtual environment, you must set it up yourself. I will not
+provide support for using the web ui this way unless you are using the recommended version of python below.
+
+If you'd like to use command line parameters, use them right there:
+
+```
+python launch.py --opt-split-attention --ckpt ../secret/anime9999.ckpt
+```
+
 ### Manual installation
-Alternatively, if you don't want to run webui.bat, here are instructions for installing
+Alternatively, if you don't want to run the installer, here are instructions for installing
 everything by hand. This can run on both Windows and Linux (if you're on linux, use `ls`
 instead of `dir`). 
 
@@ -199,6 +259,7 @@ mkdir repositories
 git clone https://github.com/CompVis/stable-diffusion.git repositories/stable-diffusion
 git clone https://github.com/CompVis/taming-transformers.git repositories/taming-transformers
 git clone https://github.com/sczhou/CodeFormer.git repositories/CodeFormer
+git clone https://github.com/salesforce/BLIP.git repositories/BLIP
 
 # install requirements of Stable Diffusion
 pip install transformers==4.19.2 diffusers invisible-watermark --prefer-binary
@@ -206,10 +267,10 @@ pip install transformers==4.19.2 diffusers invisible-watermark --prefer-binary
 # install k-diffusion
 pip install git+https://github.com/crowsonkb/k-diffusion.git --prefer-binary
 
-# (optional) install GFPGAN (face resoration)
+# (optional) install GFPGAN (face restoration)
 pip install git+https://github.com/TencentARC/GFPGAN.git --prefer-binary
 
-# (optional) install requirements for CodeFormer (face resoration)
+# (optional) install requirements for CodeFormer (face restoration)
 pip install -r repositories/CodeFormer/requirements.txt --prefer-binary
 
 # install requirements of web ui
@@ -227,9 +288,9 @@ dir model.ckpt
 dir GFPGANv1.3.pth
 ```
 
-> Note: the directory structure for manual instruction has been changed on 2022-09-09 to match automatic installation: previosuly
+> Note: the directory structure for manual instruction has been changed on 2022-09-09 to match automatic installation: previously
 > webui was in a subdirectory of stable diffusion, now it's the reverse. If you followed manual installation before the
-> chage, you can still use the program with you existing directory sctructure.
+> change, you can still use the program with your existing directory structure.
 
 After that the installation is finished.
 
@@ -251,7 +312,7 @@ After a while, you will get a message like this:
 Running on local URL:  http://127.0.0.1:7860/
 ```
 
-Open the URL in browser, and you are good to go.
+Open the URL in a browser, and you are good to go.
 
 
 ### Windows 11 WSL2 instructions
@@ -277,6 +338,22 @@ wget https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.3.pt
 
 After that follow the instructions in the `Manual instructions` section starting at step `:: clone repositories for Stable Diffusion and (optionally) CodeFormer`.
 
+### Custom scripts from users
+
+[A list of custom scripts](https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Custom-scripts-from-users), along with installation instructions.
+
+
+
+### img2img alternative test
+- see [this post](https://www.reddit.com/r/StableDiffusion/comments/xboy90/a_better_way_of_doing_img2img_by_finding_the/) on ebaumsworld.com for context.
+- find it in scripts section
+- put description of input image into the Original prompt field
+- use Euler only
+- recommended: 50 steps, low cfg scale between 1 and 2
+- denoising and seed don't matter
+- decode cfg scale between 0 and 1
+- decode steps 50
+- original blue haired woman close nearly reproduces with cfg scale=1.8
 
 ## Credits
 - Stable Diffusion - https://github.com/CompVis/stable-diffusion, https://github.com/CompVis/taming-transformers
@@ -286,5 +363,6 @@ After that follow the instructions in the `Manual instructions` section starting
 - Ideas for optimizations - https://github.com/basujindal/stable-diffusion
 - Cross Attention layer optimization - https://github.com/Doggettx/stable-diffusion
 - Idea for SD upscale - https://github.com/jquesnelle/txt2imghd
+- CLIP interrogator idea and borrowing some code - https://github.com/pharmapsychotic/clip-interrogator
 - Initial Gradio script - posted on 4chan by an Anonymous user. Thank you Anonymous user.
 - (You)

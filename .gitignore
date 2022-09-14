@@ -9,11 +9,10 @@ __pycache__
 /outputs
 /config.json
 /log
-<<<<<<< HEAD
-/gfpgan
-=======
 /webui.settings.bat
 /embeddings
 /styles.csv
+/styles.csv.bak
 /webui-user.bat
->>>>>>> dfefc5175a79dedf08fb6f6d26c6b868682a30ec
+/webui-user.sh
+/interrogate
