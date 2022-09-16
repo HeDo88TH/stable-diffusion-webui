@@ -30,6 +30,31 @@ def txt2img(prompt: str, negative_prompt: str, prompt_style: str, prompt_style2:
         tiling=tiling,
     )
 
+    print(f"Prompt: {prompt}")
+    print(f"Negative Prompt: {negative_prompt}")
+    print(f"Prompt Style: {prompt_style}")
+    print(f"Prompt Style 2: {prompt_style2}")
+    print(f"Steps: {steps}")
+    print(f"Sampler Index: {sampler_index}")
+    print(f"Restore Faces: {restore_faces}")
+    print(f"Tiling: {tiling}")
+    print(f"n_iter: {n_iter}")
+    print(f"batch_size: {batch_size}")
+    print(f"cfg_scale: {cfg_scale}")
+    print(f"seed: {seed}")
+    print(f"subseed: {subseed}")
+    print(f"subseed_strength: {subseed_strength}")
+    print(f"seed_resize_from_h: {seed_resize_from_h}")
+    print(f"seed_resize_from_w: {seed_resize_from_w}")
+    print(f"height: {height}")
+    print(f"width: {width}")
+
+    # Print function args
+    print("args:")
+    for arg in args:
+        print(f"'{arg}'")
+
+
     print(f"\ntxt2img: {prompt}", file=shared.progress_print_out)
     processed = modules.scripts.scripts_txt2img.run(p, *args)
 
