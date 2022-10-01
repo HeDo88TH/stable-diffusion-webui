@@ -6,6 +6,7 @@ import torch
 import numpy as np
 from torch import einsum
 
+from modules import prompt_parser
 from modules.shared import opts, device, cmd_opts
 
 from ldm.util import default
@@ -50,14 +51,14 @@ def split_cross_attention_forward(self, x, context=None, mask=None):
 
     q_in = self.to_q(x)
     context = default(context, x)
-    k_in = self.to_k(context)
+    k_in = self.to_k(context) * self.scale
     v_in = self.to_v(context)
     del context, x
 
     q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q_in, k_in, v_in))
     del q_in, k_in, v_in
 
-    r1 = torch.zeros(q.shape[0], q.shape[1], v.shape[2], device=q.device)
+    r1 = torch.zeros(q.shape[0], q.shape[1], v.shape[2], device=q.device, dtype=q.dtype)
 
     stats = torch.cuda.memory_stats(q.device)
     mem_active = stats['active_bytes.all.current']
@@ -85,7 +86,7 @@ def split_cross_attention_forward(self, x, context=None, mask=None):
     slice_size = q.shape[1] // steps if (q.shape[1] % steps) == 0 else q.shape[1]
     for i in range(0, q.shape[1], slice_size):
         end = i + slice_size
-        s1 = einsum('b i d, b j d -> b i j', q[:, i:end], k) * self.scale
+        s1 = einsum('b i d, b j d -> b i j', q[:, i:end], k)
 
         s2 = s1.softmax(dim=-1, dtype=q.dtype)
         del s1
@@ -180,6 +181,7 @@ class StableDiffusionModelHijack:
     dir_mtime = None
     layers = None
     circular_enabled = False
+    clip = None
 
     def load_textual_inversion_embeddings(self, dirname, model):
         mt = os.path.getmtime(dirname)
@@ -201,7 +203,7 @@ class StableDiffusionModelHijack:
         def process_file(path, filename):
             name = os.path.splitext(filename)[0]
 
-            data = torch.load(path)
+            data = torch.load(path, map_location="cpu")
 
             # textual inversion embeddings
             if 'string_to_param' in data:
@@ -210,6 +212,7 @@ class StableDiffusionModelHijack:
                     param_dict = getattr(param_dict, '_parameters')  # fix for torch 1.12.1 loading saved file from torch 1.11
                 assert len(param_dict) == 1, 'embedding file has multiple terms in it'
                 emb = next(iter(param_dict.items()))[1]
+            # diffuser concepts
             elif type(data) == dict and type(next(iter(data.values()))) == torch.Tensor:
                 assert len(data.keys()) == 1, 'embedding file has multiple terms in it'
 
@@ -217,8 +220,8 @@ class StableDiffusionModelHijack:
                 if len(emb.shape) == 1:
                     emb = emb.unsqueeze(0)
 
-            self.word_embeddings[name] = emb.detach()
-            self.word_embeddings_checksums[name] = f'{const_hash(emb.reshape(-1))&0xffff:04x}'
+            self.word_embeddings[name] = emb.detach().to(device)
+            self.word_embeddings_checksums[name] = f'{const_hash(emb.reshape(-1)*100)&0xffff:04x}'
 
             ids = tokenizer([name], add_special_tokens=False)['input_ids'][0]
 
@@ -229,13 +232,18 @@ class StableDiffusionModelHijack:
 
         for fn in os.listdir(dirname):
             try:
-                process_file(os.path.join(dirname, fn), fn)
+                fullfn = os.path.join(dirname, fn)
+
+                if os.stat(fullfn).st_size == 0:
+                    continue
+
+                process_file(fullfn, fn)
             except Exception:
                 print(f"Error loading emedding {fn}:", file=sys.stderr)
                 print(traceback.format_exc(), file=sys.stderr)
                 continue
 
-        print(f"Loaded a total of {len(self.word_embeddings)} text inversion embeddings.")
+        print(f"Loaded a total of {len(self.word_embeddings)} textual inversion embeddings.")
 
     def hijack(self, m):
         model_embeddings = m.cond_stage_model.transformer.text_model.embeddings
@@ -243,12 +251,14 @@ class StableDiffusionModelHijack:
         model_embeddings.token_embedding = EmbeddingsWithFixes(model_embeddings.token_embedding, self)
         m.cond_stage_model = FrozenCLIPEmbedderWithCustomWords(m.cond_stage_model, self)
 
-        if cmd_opts.opt_split_attention:
+        self.clip = m.cond_stage_model
+
+        if cmd_opts.opt_split_attention_v1:
+            ldm.modules.attention.CrossAttention.forward = split_cross_attention_forward_v1
+        elif not cmd_opts.disable_opt_split_attention and (cmd_opts.opt_split_attention or torch.cuda.is_available()):
             ldm.modules.attention.CrossAttention.forward = split_cross_attention_forward
             ldm.modules.diffusionmodules.model.nonlinearity = nonlinearity_hijack
             ldm.modules.diffusionmodules.model.AttnBlock.forward = cross_attention_attnblock_forward
-        elif cmd_opts.opt_split_attention_v1:
-            ldm.modules.attention.CrossAttention.forward = split_cross_attention_forward_v1
 
         def flatten(el):
             flattened = [flatten(children) for children in el.children()]
@@ -259,6 +269,14 @@ class StableDiffusionModelHijack:
 
         self.layers = flatten(m)
 
+    def undo_hijack(self, m):
+        if type(m.cond_stage_model) == FrozenCLIPEmbedderWithCustomWords:
+            m.cond_stage_model = m.cond_stage_model.wrapped
+
+        model_embeddings = m.cond_stage_model.transformer.text_model.embeddings
+        if type(model_embeddings.token_embedding) == EmbeddingsWithFixes:
+            model_embeddings.token_embedding = model_embeddings.token_embedding.wrapped
+
     def apply_circular(self, enable):
         if self.circular_enabled == enable:
             return
@@ -267,6 +285,11 @@ class StableDiffusionModelHijack:
 
         for layer in [layer for layer in self.layers if type(layer) == torch.nn.Conv2d]:
             layer.padding_mode = 'circular' if enable else 'zeros'
+
+    def tokenize(self, text):
+        max_length = self.clip.max_length - 2
+        _, remade_batch_tokens, _, _, _, token_count = self.clip.process_text([text])
+        return remade_batch_tokens[0], token_count, max_length
 
 
 class FrozenCLIPEmbedderWithCustomWords(torch.nn.Module):
@@ -294,14 +317,101 @@ class FrozenCLIPEmbedderWithCustomWords(torch.nn.Module):
             if mult != 1.0:
                 self.token_mults[ident] = mult
 
-    def forward(self, text):
-        self.hijack.fixes = []
-        self.hijack.comments = []
-        remade_batch_tokens = []
+
+    def tokenize_line(self, line, used_custom_terms, hijack_comments):
         id_start = self.wrapped.tokenizer.bos_token_id
         id_end = self.wrapped.tokenizer.eos_token_id
-        maxlen = self.wrapped.max_length - 2
+        maxlen = self.wrapped.max_length
+
+        if opts.enable_emphasis:
+            parsed = prompt_parser.parse_prompt_attention(line)
+        else:
+            parsed = [[line, 1.0]]
+
+        tokenized = self.wrapped.tokenizer([text for text, _ in parsed], truncation=False, add_special_tokens=False)["input_ids"]
+
+        fixes = []
+        remade_tokens = []
+        multipliers = []
+
+        for tokens, (text, weight) in zip(tokenized, parsed):
+            i = 0
+            while i < len(tokens):
+                token = tokens[i]
+
+                possible_matches = self.hijack.ids_lookup.get(token, None)
+
+                if possible_matches is None:
+                    remade_tokens.append(token)
+                    multipliers.append(weight)
+                else:
+                    found = False
+                    for ids, word in possible_matches:
+                        if tokens[i:i + len(ids)] == ids:
+                            emb_len = int(self.hijack.word_embeddings[word].shape[0])
+                            fixes.append((len(remade_tokens), word))
+                            remade_tokens += [0] * emb_len
+                            multipliers += [weight] * emb_len
+                            i += len(ids) - 1
+                            found = True
+                            used_custom_terms.append((word, self.hijack.word_embeddings_checksums[word]))
+                            break
+
+                    if not found:
+                        remade_tokens.append(token)
+                        multipliers.append(weight)
+                i += 1
+
+        if len(remade_tokens) > maxlen - 2:
+            vocab = {v: k for k, v in self.wrapped.tokenizer.get_vocab().items()}
+            ovf = remade_tokens[maxlen - 2:]
+            overflowing_words = [vocab.get(int(x), "") for x in ovf]
+            overflowing_text = self.wrapped.tokenizer.convert_tokens_to_string(''.join(overflowing_words))
+            hijack_comments.append(f"Warning: too many input tokens; some ({len(overflowing_words)}) have been truncated:\n{overflowing_text}\n")
+
+        token_count = len(remade_tokens)
+        remade_tokens = remade_tokens + [id_end] * (maxlen - 2 - len(remade_tokens))
+        remade_tokens = [id_start] + remade_tokens[0:maxlen - 2] + [id_end]
+
+        multipliers = multipliers + [1.0] * (maxlen - 2 - len(multipliers))
+        multipliers = [1.0] + multipliers[0:maxlen - 2] + [1.0]
+
+        return remade_tokens, fixes, multipliers, token_count
+
+    def process_text(self, texts):
         used_custom_terms = []
+        remade_batch_tokens = []
+        hijack_comments = []
+        hijack_fixes = []
+        token_count = 0
+
+        cache = {}
+        batch_multipliers = []
+        for line in texts:
+            if line in cache:
+                remade_tokens, fixes, multipliers = cache[line]
+            else:
+                remade_tokens, fixes, multipliers, token_count = self.tokenize_line(line, used_custom_terms, hijack_comments)
+
+                cache[line] = (remade_tokens, fixes, multipliers)
+
+            remade_batch_tokens.append(remade_tokens)
+            hijack_fixes.append(fixes)
+            batch_multipliers.append(multipliers)
+
+        return batch_multipliers, remade_batch_tokens, used_custom_terms, hijack_comments, hijack_fixes, token_count
+
+
+    def process_text_old(self, text):
+        id_start = self.wrapped.tokenizer.bos_token_id
+        id_end = self.wrapped.tokenizer.eos_token_id
+        maxlen = self.wrapped.max_length
+        used_custom_terms = []
+        remade_batch_tokens = []
+        overflowing_words = []
+        hijack_comments = []
+        hijack_fixes = []
+        token_count = 0
 
         cache = {}
         batch_tokens = self.wrapped.tokenizer(text, truncation=False, add_special_tokens=False)["input_ids"]
@@ -353,9 +463,8 @@ class FrozenCLIPEmbedderWithCustomWords(torch.nn.Module):
                     ovf = remade_tokens[maxlen - 2:]
                     overflowing_words = [vocab.get(int(x), "") for x in ovf]
                     overflowing_text = self.wrapped.tokenizer.convert_tokens_to_string(''.join(overflowing_words))
-
-                    self.hijack.comments.append(f"Warning: too many input tokens; some ({len(overflowing_words)}) have been truncated:\n{overflowing_text}\n")
-
+                    hijack_comments.append(f"Warning: too many input tokens; some ({len(overflowing_words)}) have been truncated:\n{overflowing_text}\n")
+                token_count = len(remade_tokens)
                 remade_tokens = remade_tokens + [id_end] * (maxlen - 2 - len(remade_tokens))
                 remade_tokens = [id_start] + remade_tokens[0:maxlen-2] + [id_end]
                 cache[tuple_tokens] = (remade_tokens, fixes, multipliers)
@@ -364,11 +473,23 @@ class FrozenCLIPEmbedderWithCustomWords(torch.nn.Module):
             multipliers = [1.0] + multipliers[0:maxlen - 2] + [1.0]
 
             remade_batch_tokens.append(remade_tokens)
-            self.hijack.fixes.append(fixes)
+            hijack_fixes.append(fixes)
             batch_multipliers.append(multipliers)
+        return batch_multipliers, remade_batch_tokens, used_custom_terms, hijack_comments, hijack_fixes, token_count
+
+    def forward(self, text):
+
+        if opts.use_old_emphasis_implementation:
+            batch_multipliers, remade_batch_tokens, used_custom_terms, hijack_comments, hijack_fixes, token_count = self.process_text_old(text)
+        else:
+            batch_multipliers, remade_batch_tokens, used_custom_terms, hijack_comments, hijack_fixes, token_count = self.process_text(text)
+
+
+        self.hijack.fixes = hijack_fixes
+        self.hijack.comments = hijack_comments
 
         if len(used_custom_terms) > 0:
-            self.hijack.comments.append("Used custom terms: " + ", ".join([f'{word} [{checksum}]' for word, checksum in used_custom_terms]))
+            self.hijack.comments.append("Used embeddings: " + ", ".join([f'{word} [{checksum}]' for word, checksum in used_custom_terms]))
 
         tokens = torch.asarray(remade_batch_tokens).to(device)
         outputs = self.wrapped.transformer(input_ids=tokens)
@@ -400,8 +521,8 @@ class EmbeddingsWithFixes(torch.nn.Module):
             for fixes, tensor in zip(batch_fixes, inputs_embeds):
                 for offset, word in fixes:
                     emb = self.embeddings.word_embeddings[word]
-                    emb_len = min(tensor.shape[0]-offset, emb.shape[0])
-                    tensor[offset:offset+emb_len] = self.embeddings.word_embeddings[word][0:emb_len]
+                    emb_len = min(tensor.shape[0]-offset-1, emb.shape[0])
+                    tensor[offset+1:offset+1+emb_len] = self.embeddings.word_embeddings[word][0:emb_len]
 
         return inputs_embeds
 

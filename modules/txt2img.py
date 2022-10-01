@@ -6,19 +6,20 @@ import modules.processing as processing
 from modules.ui import plaintext_to_html
 
 
-def txt2img(prompt: str, negative_prompt: str, prompt_style: str, steps: int, sampler_index: int, restore_faces: bool, tiling: bool, n_iter: int, batch_size: int, cfg_scale: float, seed: int, subseed: int, subseed_strength: float, seed_resize_from_h: int, seed_resize_from_w: int, height: int, width: int, *args):
+def txt2img(prompt: str, negative_prompt: str, prompt_style: str, prompt_style2: str, steps: int, sampler_index: int, restore_faces: bool, tiling: bool, n_iter: int, batch_size: int, cfg_scale: float, seed: int, subseed: int, subseed_strength: float, seed_resize_from_h: int, seed_resize_from_w: int, seed_enable_extras: bool, height: int, width: int, enable_hr: bool, scale_latent: bool, denoising_strength: float, *args):
     p = StableDiffusionProcessingTxt2Img(
         sd_model=shared.sd_model,
         outpath_samples=opts.outdir_samples or opts.outdir_txt2img_samples,
         outpath_grids=opts.outdir_grids or opts.outdir_txt2img_grids,
         prompt=prompt,
-        prompt_style=prompt_style,
+        styles=[prompt_style, prompt_style2],
         negative_prompt=negative_prompt,
         seed=seed,
         subseed=subseed,
         subseed_strength=subseed_strength,
         seed_resize_from_h=seed_resize_from_h,
         seed_resize_from_w=seed_resize_from_w,
+        seed_enable_extras=seed_enable_extras,
         sampler_index=sampler_index,
         batch_size=batch_size,
         n_iter=n_iter,
@@ -28,17 +29,47 @@ def txt2img(prompt: str, negative_prompt: str, prompt_style: str, steps: int, sa
         height=height,
         restore_faces=restore_faces,
         tiling=tiling,
+        enable_hr=enable_hr,
+        scale_latent=scale_latent if enable_hr else None,
+        denoising_strength=denoising_strength if enable_hr else None,
     )
+
+    print(f"Prompt: {prompt}")
+    print(f"Negative Prompt: {negative_prompt}")
+    print(f"Prompt Style: {prompt_style}")
+    print(f"Prompt Style 2: {prompt_style2}")
+    print(f"Steps: {steps}")
+    print(f"Sampler Index: {sampler_index}")
+    print(f"Restore Faces: {restore_faces}")
+    print(f"Tiling: {tiling}")
+    print(f"n_iter: {n_iter}")
+    print(f"batch_size: {batch_size}")
+    print(f"cfg_scale: {cfg_scale}")
+    print(f"seed: {seed}")
+    print(f"subseed: {subseed}")
+    print(f"subseed_strength: {subseed_strength}")
+    print(f"seed_resize_from_h: {seed_resize_from_h}")
+    print(f"seed_resize_from_w: {seed_resize_from_w}")
+    print(f"height: {height}")
+    print(f"width: {width}")
+
+    # Print function args
+    print("args:")
+    for arg in args:
+        print(f"'{arg}'")
+
 
     print(f"\ntxt2img: {prompt}", file=shared.progress_print_out)
     processed = modules.scripts.scripts_txt2img.run(p, *args)
 
-    if processed is not None:
-        pass
-    else:
+    if processed is None:
         processed = process_images(p)
 
     shared.total_tqdm.clear()
 
-    return processed.images, processed.js(), plaintext_to_html(processed.info)
+    generation_info_js = processed.js()
+    if opts.samples_log_stdout:
+        print(generation_info_js)
+
+    return processed.images, generation_info_js, plaintext_to_html(processed.info)
 
