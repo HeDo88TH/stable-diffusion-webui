@@ -6,25 +6,20 @@ import sys
 import tqdm
 import time
 
-from modules import shared, images
-from modules.paths import models_path
+from modules import paths, shared, images, deepbooru
 from modules.shared import opts, cmd_opts
 from modules.textual_inversion import autocrop
-if cmd_opts.deepdanbooru:
-    import modules.deepbooru as deepbooru
 
 
-def preprocess(process_src, process_dst, process_width, process_height, preprocess_txt_action, process_flip, process_split, process_caption, process_caption_deepbooru=False, split_threshold=0.5, overlap_ratio=0.2, process_focal_crop=False, process_focal_crop_face_weight=0.9, process_focal_crop_entropy_weight=0.3, process_focal_crop_edges_weight=0.5, process_focal_crop_debug=False):
+def preprocess(id_task, process_src, process_dst, process_width, process_height, preprocess_txt_action, process_flip, process_split, process_caption, process_caption_deepbooru=False, split_threshold=0.5, overlap_ratio=0.2, process_focal_crop=False, process_focal_crop_face_weight=0.9, process_focal_crop_entropy_weight=0.3, process_focal_crop_edges_weight=0.5, process_focal_crop_debug=False, process_multicrop=None, process_multicrop_mindim=None, process_multicrop_maxdim=None, process_multicrop_minarea=None, process_multicrop_maxarea=None, process_multicrop_objective=None, process_multicrop_threshold=None):
     try:
         if process_caption:
             shared.interrogator.load()
 
         if process_caption_deepbooru:
-            db_opts = deepbooru.create_deepbooru_opts()
-            db_opts[deepbooru.OPT_INCLUDE_RANKS] = False
-            deepbooru.create_deepbooru_process(opts.interrogate_deepbooru_score_threshold, db_opts)
+            deepbooru.model.start()
 
-        preprocess_work(process_src, process_dst, process_width, process_height, preprocess_txt_action, process_flip, process_split, process_caption, process_caption_deepbooru, split_threshold, overlap_ratio, process_focal_crop, process_focal_crop_face_weight, process_focal_crop_entropy_weight, process_focal_crop_edges_weight, process_focal_crop_debug)
+        preprocess_work(process_src, process_dst, process_width, process_height, preprocess_txt_action, process_flip, process_split, process_caption, process_caption_deepbooru, split_threshold, overlap_ratio, process_focal_crop, process_focal_crop_face_weight, process_focal_crop_entropy_weight, process_focal_crop_edges_weight, process_focal_crop_debug, process_multicrop, process_multicrop_mindim, process_multicrop_maxdim, process_multicrop_minarea, process_multicrop_maxarea, process_multicrop_objective, process_multicrop_threshold)
 
     finally:
 
@@ -32,7 +27,7 @@ def preprocess(process_src, process_dst, process_width, process_height, preproce
             shared.interrogator.send_blip_to_ram()
 
         if process_caption_deepbooru:
-            deepbooru.release_process()
+            deepbooru.model.stop()
 
 
 def listfiles(dirname):
@@ -58,7 +53,7 @@ def save_pic_with_caption(image, index, params: PreprocessParams, existing_capti
     if params.process_caption_deepbooru:
         if len(caption) > 0:
             caption += ", "
-        caption += deepbooru.get_tags_from_process(image)
+        caption += deepbooru.model.tag_multi(image)
 
     filename_part = params.src
     filename_part = os.path.splitext(filename_part)[0]
@@ -113,8 +108,30 @@ def split_pic(image, inverse_xy, width, height, overlap_ratio):
             splitted = image.crop((0, y, to_w, y + to_h))
         yield splitted
 
+# not using torchvision.transforms.CenterCrop because it doesn't allow float regions
+def center_crop(image: Image, w: int, h: int):
+    iw, ih = image.size
+    if ih / h < iw / w:
+        sw = w * ih / h
+        box = (iw - sw) / 2, 0, iw - (iw - sw) / 2, ih
+    else:
+        sh = h * iw / w
+        box = 0, (ih - sh) / 2, iw, ih - (ih - sh) / 2
+    return image.resize((w, h), Image.Resampling.LANCZOS, box)
 
-def preprocess_work(process_src, process_dst, process_width, process_height, preprocess_txt_action, process_flip, process_split, process_caption, process_caption_deepbooru=False, split_threshold=0.5, overlap_ratio=0.2, process_focal_crop=False, process_focal_crop_face_weight=0.9, process_focal_crop_entropy_weight=0.3, process_focal_crop_edges_weight=0.5, process_focal_crop_debug=False):
+
+def multicrop_pic(image: Image, mindim, maxdim, minarea, maxarea, objective, threshold):
+    iw, ih = image.size
+    err = lambda w, h: 1-(lambda x: x if x < 1 else 1/x)(iw/ih/(w/h))
+    wh = max(((w, h) for w in range(mindim, maxdim+1, 64) for h in range(mindim, maxdim+1, 64)
+        if minarea <= w * h <= maxarea and err(w, h) <= threshold),
+        key= lambda wh: (wh[0]*wh[1], -err(*wh))[::1 if objective=='Maximize area' else -1],
+        default=None
+    )
+    return wh and center_crop(image, *wh)
+    
+
+def preprocess_work(process_src, process_dst, process_width, process_height, preprocess_txt_action, process_flip, process_split, process_caption, process_caption_deepbooru=False, split_threshold=0.5, overlap_ratio=0.2, process_focal_crop=False, process_focal_crop_face_weight=0.9, process_focal_crop_entropy_weight=0.3, process_focal_crop_edges_weight=0.5, process_focal_crop_debug=False, process_multicrop=None, process_multicrop_mindim=None, process_multicrop_maxdim=None, process_multicrop_minarea=None, process_multicrop_maxarea=None, process_multicrop_objective=None, process_multicrop_threshold=None):
     width = process_width
     height = process_height
     src = os.path.abspath(process_src)
@@ -128,6 +145,7 @@ def preprocess_work(process_src, process_dst, process_width, process_height, pre
 
     files = listfiles(src)
 
+    shared.state.job = "preprocess"
     shared.state.textinfo = "Preprocessing..."
     shared.state.job_count = len(files)
 
@@ -138,13 +156,18 @@ def preprocess_work(process_src, process_dst, process_width, process_height, pre
     params.process_caption_deepbooru = process_caption_deepbooru
     params.preprocess_txt_action = preprocess_txt_action
 
-    for index, imagefile in enumerate(tqdm.tqdm(files)):
+    pbar = tqdm.tqdm(files)
+    for index, imagefile in enumerate(pbar):
         params.subindex = 0
         filename = os.path.join(src, imagefile)
         try:
             img = Image.open(filename).convert("RGB")
         except Exception:
             continue
+
+        description = f"Preprocessing [Image {index}/{len(files)}]"
+        pbar.set_description(description)
+        shared.state.textinfo = description
 
         params.src = filename
 
@@ -175,7 +198,7 @@ def preprocess_work(process_src, process_dst, process_width, process_height, pre
 
             dnn_model_path = None
             try:
-                dnn_model_path = autocrop.download_and_cache_models(os.path.join(models_path, "opencv"))
+                dnn_model_path = autocrop.download_and_cache_models(os.path.join(paths.models_path, "opencv"))
             except Exception as e:
                 print("Unable to load face detection model for auto crop selection. Falling back to lower quality haar method.", e)
 
@@ -190,6 +213,14 @@ def preprocess_work(process_src, process_dst, process_width, process_height, pre
             )
             for focal in autocrop.crop_image(img, autocrop_settings):
                 save_pic(focal, index, params, existing_caption=existing_caption)
+            process_default_resize = False
+
+        if process_multicrop:
+            cropped = multicrop_pic(img, process_multicrop_mindim, process_multicrop_maxdim, process_multicrop_minarea, process_multicrop_maxarea, process_multicrop_objective, process_multicrop_threshold)
+            if cropped is not None:
+                save_pic(cropped, index, params, existing_caption=existing_caption)
+            else:
+                print(f"skipped {img.width}x{img.height} image {filename} (can't find suitable size within error threshold)")
             process_default_resize = False
 
         if process_default_resize:
